@@ -1,7 +1,8 @@
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 
 from gitlab_visualizer.graph_builder import (
     build_project_graph,
+    build_timeline_graph,
     export_graphml,
 )
 from gitlab_visualizer.models import Commit, Project, Student
@@ -125,4 +126,22 @@ print(
     f"Created graph with "
     f"{graph.number_of_nodes()} nodes and "
     f"{graph.number_of_edges()} edges."
+)
+timeline_graph = build_timeline_graph(
+    project=project,
+    students=[anna, peter],
+    commits=commits,
+    commit_authors=commit_authors,
+    course_start=date(2026, 10, 1),
+)
+
+export_graphml(
+    timeline_graph,
+    "timeline.graphml",
+)
+
+print(
+    f"Created timeline graph with "
+    f"{timeline_graph.number_of_nodes()} nodes and "
+    f"{timeline_graph.number_of_edges()} edges."
 )
