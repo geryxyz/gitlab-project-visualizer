@@ -5,6 +5,7 @@ from gitlab_visualizer.gitlab_client import (
     GitLabGraphQLClient,
     GitLabRestClient,
 )
+from gitlab_visualizer.models import Project
 
 def test_get_current_user(monkeypatch) -> None:
     from gitlab_visualizer import gitlab_client
@@ -14,7 +15,7 @@ def test_get_current_user(monkeypatch) -> None:
     class FakeResponse:
         def raise_for_status(self):
             pass
-
+        
         def json(self):
             return {
                 "id": 123,
@@ -52,7 +53,7 @@ def test_get_current_user_without_token(monkeypatch) -> None:
 
     with pytest.raises(RuntimeError, match="GITLAB_TOKEN"):
         client.get_current_user()
-        
+
 def test_gitlab_config_urls() -> None:
     config = GitLabConfig(
         base_url="https://gitlab.example.com"
@@ -97,3 +98,57 @@ def test_gitlab_client_contains_both_api_clients() -> None:
         client.graphql,
         GitLabGraphQLClient,
     )
+def test_get_projects(monkeypatch) -> None:
+    from gitlab_visualizer import gitlab_client
+
+    monkeypatch.setenv("GITLAB_TOKEN", "fake-token")
+
+    class FakeResponse:
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return [
+                {
+                    "id": 101,
+                    "name": "Example Project",
+                    "path_with_namespace": "course/example",
+                    "web_url": "https://gitlab.example.com/course/example",
+                }
+            ]
+
+    def fake_get(url, headers, params, timeout):
+        assert url == "https://gitlab.example.com/api/v4/projects"
+        assert headers["PRIVATE-TOKEN"] == "fake-token"
+        assert params["membership"] == "true"
+        assert params["per_page"] == 20
+        assert params["page"] == 1
+        assert timeout == 15
+
+        return FakeResponse()
+
+    monkeypatch.setattr(
+        gitlab_client.requests,
+        "get",
+        fake_get,
+    )
+
+    config = GitLabConfig("https://gitlab.example.com")
+    client = GitLabRestClient(config)
+
+    projects = client.get_projects()
+
+    assert len(projects) == 1
+    assert isinstance(projects[0], Project)
+    assert projects[0].id == 101
+    assert projects[0].name == "Example Project"
+
+
+def test_get_projects_without_token(monkeypatch) -> None:
+    monkeypatch.delenv("GITLAB_TOKEN", raising=False)
+
+    config = GitLabConfig("https://gitlab.example.com")
+    client = GitLabRestClient(config)
+
+    with pytest.raises(RuntimeError, match="GITLAB_TOKEN"):
+        client.get_projects()

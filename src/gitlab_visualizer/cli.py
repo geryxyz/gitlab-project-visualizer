@@ -96,6 +96,40 @@ def run_whoami(args: argparse.Namespace) -> None:
     print(f"Username: {user['username']}")
     print(f"User ID: {user.get('id', 'unknown')}")
 
+def run_projects(args: argparse.Namespace) -> None:
+    base_url = os.getenv("GITLAB_URL")
+
+    if not base_url:
+        raise SystemExit(
+            "GITLAB_URL environment variable is missing."
+        )
+
+    config = GitLabConfig(base_url)
+    client = GitLabClient(config)
+
+    try:
+        projects = client.rest.get_projects()
+
+    except (
+        RuntimeError,
+        ValueError,
+        requests.exceptions.RequestException,
+    ) as error:
+        raise SystemExit(
+            f"Could not retrieve projects: {error}"
+        ) from error
+
+    if not projects:
+        print("No matching projects found.")
+        return
+
+    print(f"Found {len(projects)} projects (first page):")
+
+    for project in projects:
+        print(
+            f"[{project.id}] {project.path_with_namespace}"
+        )
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="gitlab-visualizer",
@@ -155,7 +189,14 @@ def build_parser() -> argparse.ArgumentParser:
     whoami_parser.set_defaults(
         func=run_whoami,
     )
-    
+    projects_parser = subparsers.add_parser(
+        "projects",
+        help="List GitLab projects.",
+    )
+
+    projects_parser.set_defaults(
+        func=run_projects,
+    )
     return parser
 
 
