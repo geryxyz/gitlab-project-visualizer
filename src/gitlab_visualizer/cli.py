@@ -1,3 +1,7 @@
+import os
+import requests
+
+from .gitlab_client import GitLabClient, GitLabConfig
 import argparse
 from pathlib import Path
 
@@ -69,6 +73,28 @@ def run_demo_timeline(args: argparse.Namespace) -> None:
 
     print(f"Saved to: {args.output}")
 
+def run_whoami(args: argparse.Namespace) -> None:
+    base_url = os.getenv("GITLAB_URL")
+
+    if not base_url:
+        raise SystemExit(
+            "GITLAB_URL environment variable is missing."
+        )
+
+    config = GitLabConfig(base_url)
+    client = GitLabClient(config)
+
+    try:
+        user = client.rest.get_current_user()
+
+    except (RuntimeError, ValueError, requests.exceptions.RequestException) as error:
+        raise SystemExit(
+            f"Could not connect to GitLab: {error}"
+        ) from error
+
+    print("Connected to GitLab successfully!")
+    print(f"Username: {user['username']}")
+    print(f"User ID: {user.get('id', 'unknown')}")
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
@@ -121,6 +147,15 @@ def build_parser() -> argparse.ArgumentParser:
         func=run_demo_timeline,
     )
 
+    whoami_parser = subparsers.add_parser(
+        "whoami",
+        help="Test GitLab API authentication.",
+    )
+
+    whoami_parser.set_defaults(
+        func=run_whoami,
+    )
+    
     return parser
 
 
