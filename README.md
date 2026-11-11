@@ -41,7 +41,7 @@ project:
 
 ```powershell
 pip install -e ".[dev]"
-
+```
 
 ## GitLab API Integration
 
