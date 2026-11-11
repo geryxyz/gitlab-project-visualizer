@@ -103,10 +103,8 @@ gitlab-visualizer projects
 Retrieve members and commits for a selected project:
 
 ```powershell
-gitlab-visualizer inspect-project 123
+gitlab-visualizer inspect-project ID
 ```
-
-Replace `123` with the actual GitLab project ID.
 
 The existing demonstration commands remain available:
 
