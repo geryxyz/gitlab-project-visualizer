@@ -1,6 +1,6 @@
 from datetime import date, datetime, timezone
 
-from gitlab_visualizer.graph_builder import build_project_graph
+from gitlab_visualizer.graph_builder import build_real_project_graph
 from gitlab_visualizer.models import Commit, Project, Student
 from gitlab_visualizer.graph_builder import (
     build_project_graph,
@@ -212,4 +212,36 @@ def test_build_timeline_graph() -> None:
         "week:1",
         "week:2",
     )
+
+def test_real_project_graph_without_author_guessing():
+    project = Project(
+        id=100,
+        name="Test Project",
+        path_with_namespace="course/test",
+        web_url="https://gitlab.example.com/course/test",
+    )
+
+    member = Student(
+        id=42,
+        username="anna",
+        name="Anna",
+    )
+
+    graph = build_real_project_graph(
+        project=project,
+        members=[member],
+        commits=[],
+    )
+
+    assert "project:100" in graph
+    assert "member:42" in graph
+    assert graph.has_edge("member:42", "project:100")
+
+    assert graph.nodes["member:42"]["entity_type"] == (
+        "gitlab_member"
+    )
+
+    assert graph.edges[
+        "member:42", "project:100"
+    ]["relationship"] == "member_of"
 

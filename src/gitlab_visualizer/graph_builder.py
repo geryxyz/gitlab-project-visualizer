@@ -73,6 +73,44 @@ def build_project_graph(
 
     return graph
 
+
+def build_real_project_graph(
+    project: Project,
+    members: list[Student],
+    commits: list[Commit],
+):
+    # Reuse the existing project and commit graph.
+    # No commit-to-user matches have been verified yet.
+    graph = build_project_graph(
+        project=project,
+        students=[],
+        commits=commits,
+        commit_authors={},
+    )
+
+    # Add GitLab membership as a separate relationship.
+    # Members may include teachers, not only students.
+    project_node = f"project:{project.id}"
+
+    for member in members:
+        member_node = f"member:{member.id}"
+
+        graph.add_node(
+            member_node,
+            label=member.username,
+            entity_type="gitlab_member",
+        )
+
+        graph.add_edge(
+            member_node,
+            project_node,
+            relationship="member_of",
+            label="member_of",
+        )
+
+    return graph
+
+
 def build_timeline_graph(
     project: Project,
     students: list[Student],

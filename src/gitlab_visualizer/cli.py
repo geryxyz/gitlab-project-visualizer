@@ -1,7 +1,8 @@
 import os
-import requests
 
+import requests 
 from .gitlab_client import GitLabClient, GitLabConfig
+
 import argparse
 from pathlib import Path
 
@@ -9,6 +10,7 @@ from .graph_builder import (
     build_project_graph,
     build_timeline_graph,
     export_graphml,
+    build_real_project_graph,
 )
 from .sample_data import create_sample_data
 
@@ -123,12 +125,121 @@ def run_projects(args: argparse.Namespace) -> None:
         print("No matching projects found.")
         return
 
-    print(f"Found {len(projects)} projects (first page):")
+    print(f"Found {len(projects)} projects:")
 
     for project in projects:
         print(
             f"[{project.id}] {project.path_with_namespace}"
         )
+
+def run_inspect_project(args: argparse.Namespace) -> None:
+    base_url = os.getenv("GITLAB_URL")
+
+    if not base_url:
+        raise SystemExit(
+            "GITLAB_URL environment variable is missing."
+        )
+
+    client = GitLabClient(GitLabConfig(base_url))
+
+    try:
+        members = client.rest.get_members(args.project_id)
+        commits = client.rest.get_commits(args.project_id)
+
+    except (
+        RuntimeError,
+        ValueError,
+        KeyError,
+        requests.exceptions.RequestException,
+    ) as error:
+        raise SystemExit(
+            f"Could not inspect project: {error}"
+        ) from error
+
+    print(f"Project ID: {args.project_id}")
+    print(f"Members returned: {len(members)}")
+    print(f"Commits returned: {len(commits)}")
+
+    print("\nRecent commits:")
+
+    for commit in commits[:5]:
+        print(
+            f"  {commit.short_id} | "
+            f"{commit.authored_date:%Y-%m-%d}"
+        )
+
+
+def run_graphql_whoami(args: argparse.Namespace) -> None:
+    base_url = os.getenv("GITLAB_URL")
+
+    if not base_url:
+        raise SystemExit(
+            "GITLAB_URL environment variable is missing."
+        )
+
+    client = GitLabClient(GitLabConfig(base_url))
+
+    try:
+        user = client.graphql.get_current_user()
+
+    except (
+        RuntimeError,
+        ValueError,
+        requests.exceptions.RequestException,
+    ) as error:
+        raise SystemExit(
+            f"GraphQL request failed: {error}"
+        ) from error
+
+    print("Connected to GitLab GraphQL successfully!")
+    print(f"Username: {user['username']}")
+    print(f"Name: {user['name']}")
+
+
+def run_real_graph(args: argparse.Namespace) -> None:
+    base_url = os.getenv("GITLAB_URL")
+
+    if not base_url:
+        raise SystemExit(
+            "GITLAB_URL environment variable is missing."
+        )
+
+    client = GitLabClient(GitLabConfig(base_url))
+
+    try:
+        project = client.rest.get_project(args.project_id)
+        members = client.rest.get_members(args.project_id)
+        commits = client.rest.get_commits(args.project_id)
+
+    except (
+        RuntimeError,
+        ValueError,
+        KeyError,
+        requests.exceptions.RequestException,
+    ) as error:
+        raise SystemExit(
+            f"Could not retrieve project data: {error}"
+        ) from error
+
+    selected_commits = commits[:args.max_commits]
+
+    graph = build_real_project_graph(
+        project=project,
+        members=members,
+        commits=selected_commits,
+    )
+
+    export_graphml(graph, args.output)
+
+    print("Real GitLab graph generated successfully!")
+    print(f"Project ID: {project.id}")
+    print(f"Members retrieved: {len(members)}")
+    print(f"Commits retrieved: {len(commits)}")
+    print(f"Commits displayed: {len(selected_commits)}")
+    print(f"Graph nodes: {graph.number_of_nodes()}")
+    print(f"Graph edges: {graph.number_of_edges()}")
+    print(f"Saved to: {args.output}")
+
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
@@ -197,6 +308,58 @@ def build_parser() -> argparse.ArgumentParser:
     projects_parser.set_defaults(
         func=run_projects,
     )
+    inspect_parser = subparsers.add_parser(
+        "inspect-project",
+        help="Retrieve GitLab project members and commits.",
+    )
+
+    inspect_parser.add_argument(
+        "project_id",
+        type=int,
+        help="Numeric GitLab project ID.",
+    )
+
+    inspect_parser.set_defaults(
+        func=run_inspect_project,
+    )
+    graphql_parser = subparsers.add_parser(
+        "graphql-whoami",
+        help="Test GitLab GraphQL authentication.",
+    )
+
+    graphql_parser.set_defaults(
+        func=run_graphql_whoami,
+    )
+
+    real_parser = subparsers.add_parser(
+        "real-graph",
+        help="Create a GraphML graph from a real GitLab project.",
+    )
+
+    real_parser.add_argument(
+        "project_id",
+        type=int,
+        help="Numeric GitLab project ID.",
+    )
+
+    real_parser.add_argument(
+        "--output",
+        type=Path,
+        default=Path("real-project.graphml"),
+        help="GraphML output file.",
+    )
+
+    real_parser.add_argument(
+        "--max-commits",
+        type=int,
+        default=10,
+        choices=range(1, 31),
+        metavar="1..30",
+        help="Number of commits to display (default: 10).",
+    )
+
+    real_parser.set_defaults(func=run_real_graph)
+
     return parser
 
 
