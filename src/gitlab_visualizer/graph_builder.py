@@ -5,6 +5,7 @@ import networkx as nx
 
 from .analysis import group_commits_by_week
 from .models import Commit, Project, Student
+from hashlib import sha256
 
 def build_project_graph(
     project: Project,
@@ -74,11 +75,88 @@ def build_project_graph(
     return graph
 
 
+
 def build_real_project_graph(
     project: Project,
     members: list[Student],
     commits: list[Commit],
 ):
+    # Build the project and commit relationships first.
+    # We are not assigning commits to GitLab accounts.
+    graph = build_project_graph(
+        project=project,
+        students=[],
+        commits=commits,
+        commit_authors={},
+    )
+
+    project_node = f"project:{project.id}"
+
+    # Add GitLab members.
+    for member in members:
+        member_node = f"member:{member.id}"
+
+        graph.add_node(
+            member_node,
+            label=member.username,
+            entity_type="gitlab_member",
+        )
+
+        graph.add_edge(
+            member_node,
+            project_node,
+            relationship="member_of",
+            label="member_of",
+        )
+
+    # Add recorded Git author identities.
+    for commit in commits:
+        commit_node = f"commit:{commit.id}"
+
+        name = commit.author_name.strip()
+        email = commit.author_email.strip().casefold()
+
+        # A name/email pair identifies a recorded Git
+        # signature, not a verified GitLab account.
+        if email:
+            author_key = f"{name.casefold()}\0{email}"
+        else:
+            # Without an email, keep each commit's
+            # author identity separate.
+            author_key = f"unknown:{commit.id}"
+
+        author_hash = sha256(
+            author_key.encode("utf-8")
+        ).hexdigest()
+
+        author_node = f"git-author:{author_hash}"
+
+        if author_node not in graph:
+            graph.add_node(
+                author_node,
+                label=(
+                    f"Git author: {name or 'Unknown'} "
+                    "(unverified)"
+                ),
+                entity_type="git_author",
+                identity_status="unverified",
+            )
+
+        graph.add_edge(
+            author_node,
+            commit_node,
+            relationship="declared_author",
+            label="declared_author",
+        )
+
+        # Avoid exporting raw author email addresses
+        # if the underlying graph stored this attribute.
+        graph.nodes[commit_node].pop(
+            "author_email", None
+        )
+
+    return graph
+
     # Reuse the existing project and commit graph.
     # No commit-to-user matches have been verified yet.
     graph = build_project_graph(

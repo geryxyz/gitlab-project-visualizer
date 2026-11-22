@@ -1,11 +1,11 @@
 from datetime import date, datetime, timezone
 
-from gitlab_visualizer.graph_builder import build_real_project_graph
 from gitlab_visualizer.models import Commit, Project, Student
 from gitlab_visualizer.graph_builder import (
     build_project_graph,
     build_timeline_graph,
     export_graphml,
+    build_real_project_graph,
 )
 
 def test_build_project_graph() -> None:
@@ -245,3 +245,126 @@ def test_real_project_graph_without_author_guessing():
         "member:42", "project:100"
     ]["relationship"] == "member_of"
 
+def test_real_graph_groups_same_git_author():
+    project = Project(
+        id=100,
+        name="Test Project",
+        path_with_namespace="course/test",
+        web_url="https://gitlab.example.com/course/test",
+    )
+
+    member = Student(
+        id=42,
+        username="anna123",
+        name="Anna Smith",
+    )
+
+    timestamp = datetime(
+        2026, 10, 12, 10, 0,
+        tzinfo=timezone.utc,
+    )
+
+    commits = [
+        Commit(
+            id="abc123",
+            short_id="abc123",
+            title="First commit",
+            author_name="Anna Smith",
+            author_email="anna@example.com",
+            authored_date=timestamp,
+            committed_date=timestamp,
+            project_id=100,
+        ),
+        Commit(
+            id="def456",
+            short_id="def456",
+            title="Second commit",
+            author_name="Anna Smith",
+            author_email="anna@example.com",
+            authored_date=timestamp,
+            committed_date=timestamp,
+            project_id=100,
+        ),
+    ]
+
+    graph = build_real_project_graph(
+        project=project,
+        members=[member],
+        commits=commits,
+    )
+
+    author_nodes = [
+        node
+        for node, data in graph.nodes(data=True)
+        if data.get("entity_type") == "git_author"
+    ]
+
+    # Both commits share one recorded author signature.
+    assert len(author_nodes) == 1
+
+    author_node = author_nodes[0]
+
+    assert graph.has_edge(author_node, "commit:abc123")
+    assert graph.has_edge(author_node, "commit:def456")
+
+    assert graph.edges[
+        author_node, "commit:abc123"
+    ]["relationship"] == "declared_author"
+
+    # The GitLab account remains separate.
+    assert graph.has_edge("member:42", "project:100")
+    assert not graph.has_edge(
+        "member:42", "commit:abc123"
+    )
+
+    assert graph.nodes[author_node][
+        "identity_status"
+    ] == "unverified"
+
+
+def test_same_name_different_emails_are_separate():
+    project = Project(
+        id=100,
+        name="Test Project",
+        path_with_namespace="course/test",
+        web_url="https://gitlab.example.com/course/test",
+    )
+
+    timestamp = datetime(
+        2026, 10, 12, 10, 0,
+        tzinfo=timezone.utc,
+    )
+
+    commits = []
+
+    for commit_id, email in [
+        ("abc123", "anna@example.com"),
+        ("def456", "anna@university.example"),
+    ]:
+        commits.append(
+            Commit(
+                id=commit_id,
+                short_id=commit_id,
+                title="Example commit",
+                author_name="Anna Smith",
+                author_email=email,
+                authored_date=timestamp,
+                committed_date=timestamp,
+                project_id=100,
+            )
+        )
+
+    graph = build_real_project_graph(
+        project=project,
+        members=[],
+        commits=commits,
+    )
+
+    author_nodes = [
+        node
+        for node, data in graph.nodes(data=True)
+        if data.get("entity_type") == "git_author"
+    ]
+
+    # Same name, different recorded author signatures.
+    assert len(author_nodes) == 2
