@@ -13,7 +13,8 @@ from .graph_builder import (
     build_real_project_graph,
 )
 from .sample_data import create_sample_data
-
+from .analysis import build_real_timeline_graph
+from datetime import date
 
 def run_demo_graph(args: argparse.Namespace) -> None:
     (
@@ -241,6 +242,66 @@ def run_real_graph(args: argparse.Namespace) -> None:
     print(f"Saved to: {args.output}")
 
 
+def run_real_timeline(args: argparse.Namespace) -> None:
+    base_url = os.getenv("GITLAB_URL")
+
+    if not base_url:
+        raise SystemExit(
+            "GITLAB_URL environment variable is missing."
+        )
+
+    client = GitLabClient(GitLabConfig(base_url))
+
+    try:
+        project = client.rest.get_project(
+            args.project_id
+        )
+
+        commits = client.rest.get_commits(
+            args.project_id
+        )
+
+        graph = build_real_timeline_graph(
+            project=project,
+            commits=commits,
+            course_start=args.start_date,
+            course_end=args.end_date,
+        )
+
+        export_graphml(graph, args.output)
+
+    except (
+        RuntimeError,
+        ValueError,
+        KeyError,
+        requests.exceptions.RequestException,
+    ) as error:
+        raise SystemExit(
+            f"Could not generate timeline: {error}"
+        ) from error
+
+    included_commits = sum(
+        data["commit_count"]
+        for _, data in graph.nodes(data=True)
+        if data.get("entity_type") == "activity_week"
+    )
+
+    week_count = sum(
+        1
+        for _, data in graph.nodes(data=True)
+        if data.get("entity_type") == "activity_week"
+    )
+
+    print("Real GitLab timeline generated successfully!")
+    print(f"Project ID: {project.id}")
+    print(f"Commits retrieved: {len(commits)}")
+    print(f"Commits included in period: {included_commits}")
+    print(f"Weeks displayed: {week_count}")
+    print(f"Graph nodes: {graph.number_of_nodes()}")
+    print(f"Graph edges: {graph.number_of_edges()}")
+    print(f"Saved to: {args.output}")
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="gitlab-visualizer",
@@ -359,6 +420,44 @@ def build_parser() -> argparse.ArgumentParser:
     )
 
     real_parser.set_defaults(func=run_real_graph)
+
+
+    timeline_real_parser = subparsers.add_parser(
+        "real-timeline",
+        help="Generate a weekly timeline from real GitLab data.",
+    )
+
+    timeline_real_parser.add_argument(
+        "project_id",
+        type=int,
+        help="Numeric GitLab project ID.",
+    )
+
+    timeline_real_parser.add_argument(
+        "--start-date",
+        type=date.fromisoformat,
+        required=True,
+        help="Course start date in YYYY-MM-DD format.",
+    )
+
+    timeline_real_parser.add_argument(
+        "--end-date",
+        type=date.fromisoformat,
+        default=None,
+        help="Optional course end date in YYYY-MM-DD format.",
+    )
+
+    timeline_real_parser.add_argument(
+        "--output",
+        type=Path,
+        default=Path("real-timeline.graphml"),
+        help="Output GraphML filename.",
+    )
+
+    timeline_real_parser.set_defaults(
+        func=run_real_timeline,
+    )
+
 
     return parser
 
