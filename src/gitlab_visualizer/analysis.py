@@ -116,7 +116,8 @@ def build_real_timeline_graph(
 
     graph.graph["date_basis"] = "authored_date_utc"
     graph.graph["scope"] = "default_branch_commits"
-
+    graph.graph["graph_kind"] = "weekly_timeline"
+    
     project_node = f"project:{project.id}"
 
     graph.add_node(

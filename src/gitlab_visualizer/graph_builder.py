@@ -7,6 +7,15 @@ from .analysis import group_commits_by_week
 from .models import Commit, Project, Student
 from hashlib import sha256
 
+def compact_label(text: str, max_length: int = 45) -> str:
+    """Shorten text so graph labels remain readable."""
+    cleaned = " ".join(text.split())
+
+    if len(cleaned) <= max_length:
+        return cleaned
+
+    return cleaned[:max_length - 3].rstrip() + "..."
+
 def build_project_graph(
     project: Project,
     students: list[Student],
@@ -74,15 +83,11 @@ def build_project_graph(
 
     return graph
 
-
-
 def build_real_project_graph(
     project: Project,
     members: list[Student],
     commits: list[Commit],
 ):
-    # Build the project and commit relationships first.
-    # We are not assigning commits to GitLab accounts.
     graph = build_project_graph(
         project=project,
         students=[],
@@ -92,13 +97,21 @@ def build_real_project_graph(
 
     project_node = f"project:{project.id}"
 
-    # Add GitLab members.
+    # Give the project a concise, identifiable label.
+    graph.nodes[project_node]["label"] = (
+        f"Project\n{compact_label(project.name)}"
+    )
+
+    # Add GitLab accounts with project membership.
     for member in members:
         member_node = f"member:{member.id}"
 
         graph.add_node(
             member_node,
-            label=member.username,
+            label=(
+                f"GitLab member\n"
+                f"{compact_label(member.username)}"
+            ),
             entity_type="gitlab_member",
         )
 
@@ -109,20 +122,22 @@ def build_real_project_graph(
             label="member_of",
         )
 
-    # Add recorded Git author identities.
+    # Add recorded Git authors without claiming that
+    # they match particular GitLab member accounts.
     for commit in commits:
         commit_node = f"commit:{commit.id}"
+
+        graph.nodes[commit_node]["label"] = (
+            f"Commit {commit.short_id}\n"
+            f"{compact_label(commit.title)}"
+        )
 
         name = commit.author_name.strip()
         email = commit.author_email.strip().casefold()
 
-        # A name/email pair identifies a recorded Git
-        # signature, not a verified GitLab account.
         if email:
             author_key = f"{name.casefold()}\0{email}"
         else:
-            # Without an email, keep each commit's
-            # author identity separate.
             author_key = f"unknown:{commit.id}"
 
         author_hash = sha256(
@@ -135,8 +150,8 @@ def build_real_project_graph(
             graph.add_node(
                 author_node,
                 label=(
-                    f"Git author: {name or 'Unknown'} "
-                    "(unverified)"
+                    "Git author (unverified)\n"
+                    f"{compact_label(name or 'Unknown')}"
                 ),
                 entity_type="git_author",
                 identity_status="unverified",
@@ -149,45 +164,18 @@ def build_real_project_graph(
             label="declared_author",
         )
 
-        # Avoid exporting raw author email addresses
-        # if the underlying graph stored this attribute.
+        # Do not retain raw author emails in the
+        # exported commit node attributes.
         graph.nodes[commit_node].pop(
             "author_email", None
         )
 
-    return graph
-
-    # Reuse the existing project and commit graph.
-    # No commit-to-user matches have been verified yet.
-    graph = build_project_graph(
-        project=project,
-        students=[],
-        commits=commits,
-        commit_authors={},
-    )
-
-    # Add GitLab membership as a separate relationship.
-    # Members may include teachers, not only students.
-    project_node = f"project:{project.id}"
-
-    for member in members:
-        member_node = f"member:{member.id}"
-
-        graph.add_node(
-            member_node,
-            label=member.username,
-            entity_type="gitlab_member",
-        )
-
-        graph.add_edge(
-            member_node,
-            project_node,
-            relationship="member_of",
-            label="member_of",
-        )
+    # Metadata describing what this graph represents.
+    graph.graph["graph_kind"] = "relationship"
+    graph.graph["author_identity"] = "unverified"
+    graph.graph["commit_scope"] = "default_branch"
 
     return graph
-
 
 def build_timeline_graph(
     project: Project,
@@ -296,3 +284,5 @@ def export_graphml(
     output_path: str | Path,
 ) -> None:
     nx.write_graphml(graph, output_path)
+
+
